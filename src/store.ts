@@ -108,7 +108,11 @@ export class TodoStore {
     });
   }
 
-  async markTask(taskId: string, done: boolean, actorId: string): Promise<{ task: Task | null; changed: boolean }> {
+  async markTask(
+    taskId: string,
+    done: boolean,
+    actorId: string,
+  ): Promise<{ task: Task | null; changed: boolean }> {
     return this.enqueue(async () => {
       const data = await this.getData();
       const task = data.tasks.find((item) => item.id === taskId);
@@ -132,7 +136,10 @@ export class TodoStore {
     });
   }
 
-  async updateTaskMetadata(taskId: string, updates: { messageTs?: string | null; discussionStartedAt?: string | null }): Promise<Task | null> {
+  async updateTaskMetadata(
+    taskId: string,
+    updates: { messageTs?: string | null; discussionStartedAt?: string | null },
+  ): Promise<Task | null> {
     return this.enqueue(async () => {
       const data = await this.getData();
       const task = data.tasks.find((item) => item.id === taskId);

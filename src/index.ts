@@ -68,7 +68,11 @@ function normalizeCompletionTarget(value: string | undefined): CompletionTarget 
   return value === "dm_creator" ? "dm_creator" : "channel";
 }
 
-async function openSettingsModal(client: any, triggerId: string, conversationId: string): Promise<void> {
+async function openSettingsModal(
+  client: any,
+  triggerId: string,
+  conversationId: string,
+): Promise<void> {
   const settings = await store.getConversationSettings(conversationId);
   await client.views.open({
     trigger_id: triggerId,
@@ -103,7 +107,11 @@ async function notifyOnCompletion(task: Task, actorId: string, client: any): Pro
   });
 }
 
-async function syncCanonicalTaskCard(task: Task, sourceTs: string | undefined, client: any): Promise<void> {
+async function syncCanonicalTaskCard(
+  task: Task,
+  sourceTs: string | undefined,
+  client: any,
+): Promise<void> {
   if (!task.messageTs) {
     return;
   }
@@ -200,7 +208,9 @@ app.command("/todo", async ({ command, ack, respond, client }) => {
           tasks,
           conversationId: command.channel_id,
           title: formatListTitle(participants),
-          subtitle: includeDone ? "Showing open and completed tasks" : "Showing only open tasks (add `all` to include completed)",
+          subtitle: includeDone
+            ? "Showing open and completed tasks"
+            : "Showing only open tasks (add `all` to include completed)",
         }),
       });
 
@@ -237,7 +247,9 @@ app.command("/todo", async ({ command, ack, respond, client }) => {
           tasks,
           conversationId: command.channel_id,
           title: formatListTitle(participants),
-          subtitle: includeDone ? "Showing open and completed tasks" : "Showing only open tasks (add `all` to include completed)",
+          subtitle: includeDone
+            ? "Showing open and completed tasks"
+            : "Showing only open tasks (add `all` to include completed)",
         }),
       });
 
@@ -288,7 +300,10 @@ app.action("toggle_task", async ({ ack, action, body, client }) => {
   }
 
   const sourceChannel = "channel" in body ? body.channel?.id : undefined;
-  const sourceMessage = "message" in body ? (body.message as { ts?: string; text?: string; blocks?: any[] }) : undefined;
+  const sourceMessage =
+    "message" in body
+      ? (body.message as { ts?: string; text?: string; blocks?: any[] })
+      : undefined;
 
   if (sourceChannel && sourceMessage?.ts && Array.isArray(sourceMessage.blocks)) {
     try {
@@ -347,7 +362,8 @@ app.action("discuss_task", async ({ ack, body, action, client }) => {
       text: `:speech_balloon: Discussion started by <@${actorId}> for *${task.title}*`,
     });
 
-    task = (await store.updateTaskMetadata(task.id, { discussionStartedAt: discussion.ts })) ?? task;
+    task =
+      (await store.updateTaskMetadata(task.id, { discussionStartedAt: discussion.ts })) ?? task;
   }
 
   if (!task.messageTs) {
@@ -378,7 +394,8 @@ app.action("discuss_task", async ({ ack, body, action, client }) => {
 app.action("open_todo_settings", async ({ ack, body, action, client }) => {
   await ack();
 
-  const conversationId = (action as { value?: string }).value ?? ("channel" in body ? body.channel?.id : undefined);
+  const conversationId =
+    (action as { value?: string }).value ?? ("channel" in body ? body.channel?.id : undefined);
   const triggerId = (body as { trigger_id?: string }).trigger_id;
   if (!conversationId) {
     return;
@@ -403,8 +420,12 @@ app.view("todo_settings_modal", async ({ ack, body, view, client }) => {
     }
 
     const state = view.state.values as Record<string, Record<string, any>>;
-    const updatesSelection = state.settings_updates?.post_completion_update?.selected_options as Array<unknown> | undefined;
-    const selectedTarget = state.settings_target?.completion_target?.selected_option?.value as string | undefined;
+    const updatesSelection = state.settings_updates?.post_completion_update?.selected_options as
+      | Array<unknown>
+      | undefined;
+    const selectedTarget = state.settings_target?.completion_target?.selected_option?.value as
+      | string
+      | undefined;
 
     await store.upsertConversationSettings(conversationId, {
       postCompletionUpdate: (updatesSelection?.length ?? 0) > 0,

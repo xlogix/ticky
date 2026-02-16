@@ -29,13 +29,13 @@ A mini task management Slack tool for channels and DMs.
 pnpm install
 ```
 
-2. Configure environment:
+1. Configure environment:
 
 ```bash
 cp .env.example .env
 ```
 
-3. Fill `.env` values:
+1. Fill `.env` values:
 
 - `SLACK_BOT_TOKEN`
 - `SLACK_SIGNING_SECRET`
@@ -43,10 +43,19 @@ cp .env.example .env
 - `PORT` (optional)
 - `STORE_PATH` (optional)
 
-4. Run in dev mode:
+1. Run in dev mode:
 
 ```bash
 pnpm dev
+```
+
+1. Run quality checks:
+
+```bash
+pnpm lint
+pnpm format:check
+pnpm check
+pnpm build
 ```
 
 ## Slack app configuration
@@ -54,25 +63,29 @@ pnpm dev
 Create a Slack app and enable:
 
 1. **Slash Commands**
+
 - Command: `/todo`
 - Escape channels, users, and links sent to your app: enabled (`should_escape: true`).
 - Request URL: required only for HTTP mode.
 
-2. **Interactivity & Shortcuts**
+1. **Interactivity & Shortcuts**
+
 - Enable Interactivity.
 - Request URL: required only for HTTP mode.
 
-3. **OAuth Scopes (Bot Token)**
+1. **OAuth Scopes (Bot Token)**
+
 - `commands`
 - `chat:write`
 
-4. **Socket Mode**
+1. **Socket Mode**
+
 - Enable Socket Mode and generate an app-level token with `connections:write` scope.
 - Put that token into `SLACK_APP_TOKEN`.
 
-5. Install the app to your workspace.
-6. Invite the bot user into channels where it should post: `/invite @Ticky`.
-7. Optional: import `slack-manifest.yaml` to prefill app config.
+1. Install the app to your workspace.
+2. Invite the bot user into channels where it should post: `/invite @Ticky`.
+3. Optional: import `slack-manifest.yaml` to prefill app config.
 
 ## Runtime modes
 

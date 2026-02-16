@@ -137,7 +137,10 @@ export function buildTaskListBlocks(input: {
   return blocks;
 }
 
-export function updateBlocksWithTaskState(existingBlocks: (KnownBlock | Block)[], task: Task): (KnownBlock | Block)[] {
+export function updateBlocksWithTaskState(
+  existingBlocks: (KnownBlock | Block)[],
+  task: Task,
+): (KnownBlock | Block)[] {
   return existingBlocks.map((block) => {
     const blockId = "block_id" in block ? block.block_id : undefined;
 
@@ -173,7 +176,10 @@ export function buildSettingsModal(input: {
     value: "enabled",
   };
 
-  const targetOptions: Array<{ text: { type: "plain_text"; text: string }; value: CompletionTarget }> = [
+  const targetOptions: Array<{
+    text: { type: "plain_text"; text: string };
+    value: CompletionTarget;
+  }> = [
     {
       text: {
         type: "plain_text",
@@ -233,7 +239,9 @@ export function buildSettingsModal(input: {
           type: "static_select",
           action_id: "completion_target",
           options: targetOptions,
-          initial_option: targetOptions.find((option) => option.value === input.settings.completionTarget) ?? targetOptions[0],
+          initial_option:
+            targetOptions.find((option) => option.value === input.settings.completionTarget) ??
+            targetOptions[0],
         },
       },
     ],

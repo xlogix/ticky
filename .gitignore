@@ -25,6 +25,7 @@ pnpm-debug.log*
 # caches
 .cache/
 .turbo/
+.eslintcache
 
 # runtime data
 data/store.json
