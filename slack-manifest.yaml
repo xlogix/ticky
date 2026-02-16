@@ -1,0 +1,24 @@
+display_information:
+  name: Ticky
+  description: Mini Slack task manager for channels and DMs
+  background_color: "#0f172a"
+features:
+  bot_user:
+    display_name: Ticky
+    always_online: false
+  slash_commands:
+    - command: /todo
+      description: Manage shared todos
+      should_escape: true
+oauth_config:
+  scopes:
+    bot:
+      - commands
+      - chat:write
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://example.com/slack/events
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
