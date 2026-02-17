@@ -1,15 +1,44 @@
 import { Block, KnownBlock } from "@slack/types";
 import { CompletionTarget, ConversationSettings, Task } from "./types";
 
-function taskSummary(task: Task): string {
-  const stateIcon = task.done ? ":white_check_mark:" : ":white_large_square:";
-  const title = task.done ? `~${task.title}~` : task.title;
-  const assignee = task.assignee ? `<@${task.assignee}>` : "Unassigned";
-
-  return `${stateIcon} *${title}*\nAssignee: ${assignee} | Created by: <@${task.createdBy}>`;
+function escapeMrkdwn(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function doneOption(taskId: string): { text: { type: "plain_text"; text: string }; value: string } {
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function statusLabel(task: Task): string {
+  if (!task.done) {
+    return ":large_blue_circle: *Open*";
+  }
+
+  if (task.doneBy) {
+    return `:white_check_mark: *Done* by <@${task.doneBy}>`;
+  }
+
+  return ":white_check_mark: *Done*";
+}
+
+function assigneeLabel(task: Task): string {
+  return task.assignee ? `<@${task.assignee}>` : "Unassigned";
+}
+
+function taskSummary(task: Task): string {
+  const safeTitle = escapeMrkdwn(task.title);
+  const title = task.done ? `~${safeTitle}~` : safeTitle;
+
+  return [`*${title}*`, `${statusLabel(task)}  •  Assignee: ${assigneeLabel(task)}`].join("\n");
+}
+
+function doneOption(taskId: string): {
+  text: { type: "plain_text"; text: string };
+  value: string;
+} {
   return {
     text: {
       type: "plain_text",
@@ -20,8 +49,6 @@ function doneOption(taskId: string): { text: { type: "plain_text"; text: string 
 }
 
 export function buildTaskSection(task: Task, blockId: string): KnownBlock {
-  const option = doneOption(task.id);
-
   return {
     type: "section",
     block_id: blockId,
@@ -29,20 +56,51 @@ export function buildTaskSection(task: Task, blockId: string): KnownBlock {
       type: "mrkdwn",
       text: taskSummary(task),
     },
-    accessory: {
-      type: "checkboxes",
-      action_id: "toggle_task",
-      options: [option],
-      ...(task.done ? { initial_options: [option] } : {}),
-    },
+  };
+}
+
+function buildTaskMetaContext(task: Task, blockId: string): KnownBlock {
+  return {
+    type: "context",
+    block_id: blockId,
+    elements: [
+      {
+        type: "mrkdwn",
+        text: `Created by <@${task.createdBy}> • Updated ${new Date(task.updatedAt).toLocaleString()}`,
+      },
+    ],
   };
 }
 
 export function buildTaskActions(task: Task, blockId: string): KnownBlock {
+  const togglePayload = JSON.stringify({
+    taskId: task.id,
+    done: !task.done,
+  });
+
   return {
     type: "actions",
     block_id: blockId,
     elements: [
+      {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: task.done ? "Reopen" : "Mark Done",
+        },
+        action_id: "toggle_task_button",
+        value: togglePayload,
+        ...(task.done ? { style: "danger" } : { style: "primary" }),
+      },
+      {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: "Edit",
+        },
+        action_id: "edit_task",
+        value: task.id,
+      },
       {
         type: "button",
         text: {
@@ -56,20 +114,33 @@ export function buildTaskActions(task: Task, blockId: string): KnownBlock {
   };
 }
 
+function buildTaskCardContext(task: Task): KnownBlock {
+  return {
+    type: "context",
+    block_id: `task_card_context:${task.id}`,
+    elements: [
+      {
+        type: "mrkdwn",
+        text: `Task ID: ${task.id} • Created ${new Date(task.createdAt).toLocaleString()}`,
+      },
+    ],
+  };
+}
+
 export function buildTaskCardBlocks(task: Task): (KnownBlock | Block)[] {
   return [
-    buildTaskSection(task, `task_card:${task.id}`),
-    buildTaskActions(task, `task_card_actions:${task.id}`),
     {
-      type: "context",
-      block_id: `task_card_context:${task.id}`,
-      elements: [
-        {
-          type: "mrkdwn",
-          text: `Task ID: ${task.id} | Created: ${new Date(task.createdAt).toLocaleString()}`,
-        },
-      ],
+      type: "header",
+      block_id: `task_card_header:${task.id}`,
+      text: {
+        type: "plain_text",
+        text: "Ticky Task",
+      },
     },
+    buildTaskSection(task, `task_card:${task.id}`),
+    buildTaskMetaContext(task, `task_card_meta:${task.id}`),
+    buildTaskActions(task, `task_card_actions:${task.id}`),
+    buildTaskCardContext(task),
   ];
 }
 
@@ -84,7 +155,15 @@ export function buildTaskListBlocks(input: {
       type: "header",
       text: {
         type: "plain_text",
-        text: input.title,
+        text: "Ticky Todo Board",
+      },
+    },
+    {
+      type: "section",
+      block_id: "todo_list_title",
+      text: {
+        type: "mrkdwn",
+        text: `*${escapeMrkdwn(input.title)}*`,
       },
     },
   ];
@@ -114,6 +193,15 @@ export function buildTaskListBlocks(input: {
         },
         value: input.conversationId,
       },
+      {
+        type: "button",
+        action_id: "message_to_task_help",
+        text: {
+          type: "plain_text",
+          text: "Message -> Task",
+        },
+        value: input.conversationId,
+      },
     ],
   });
 
@@ -130,6 +218,7 @@ export function buildTaskListBlocks(input: {
 
   for (const task of input.tasks) {
     blocks.push(buildTaskSection(task, `task_section:${task.id}`));
+    blocks.push(buildTaskMetaContext(task, `task_meta:${task.id}`));
     blocks.push(buildTaskActions(task, `task_actions:${task.id}`));
     blocks.push({ type: "divider" });
   }
@@ -152,12 +241,24 @@ export function updateBlocksWithTaskState(
       return buildTaskActions(task, `task_actions:${task.id}`);
     }
 
+    if (blockId === `task_meta:${task.id}`) {
+      return buildTaskMetaContext(task, `task_meta:${task.id}`);
+    }
+
     if (blockId === `task_card:${task.id}`) {
       return buildTaskSection(task, `task_card:${task.id}`);
     }
 
+    if (blockId === `task_card_meta:${task.id}`) {
+      return buildTaskMetaContext(task, `task_card_meta:${task.id}`);
+    }
+
     if (blockId === `task_card_actions:${task.id}`) {
       return buildTaskActions(task, `task_card_actions:${task.id}`);
+    }
+
+    if (blockId === `task_card_context:${task.id}`) {
+      return buildTaskCardContext(task);
     }
 
     return block;
@@ -242,6 +343,165 @@ export function buildSettingsModal(input: {
           initial_option:
             targetOptions.find((option) => option.value === input.settings.completionTarget) ??
             targetOptions[0],
+        },
+      },
+    ],
+  };
+}
+
+export function buildEditTaskModal(input: {
+  task: Task;
+  sourceChannelId?: string;
+  sourceMessageTs?: string;
+}): Record<string, unknown> {
+  const done = doneOption("done");
+
+  return {
+    type: "modal",
+    callback_id: "todo_edit_task_modal",
+    private_metadata: JSON.stringify({
+      taskId: input.task.id,
+      sourceChannelId: input.sourceChannelId,
+      sourceMessageTs: input.sourceMessageTs,
+    }),
+    title: {
+      type: "plain_text",
+      text: "Edit Task",
+    },
+    submit: {
+      type: "plain_text",
+      text: "Save",
+    },
+    close: {
+      type: "plain_text",
+      text: "Cancel",
+    },
+    blocks: [
+      {
+        type: "input",
+        block_id: "edit_title",
+        label: {
+          type: "plain_text",
+          text: "Task title",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "title",
+          min_length: 1,
+          initial_value: input.task.title,
+          multiline: true,
+        },
+      },
+      {
+        type: "input",
+        block_id: "edit_assignee",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Assignee",
+        },
+        element: {
+          type: "users_select",
+          action_id: "assignee",
+          placeholder: {
+            type: "plain_text",
+            text: "Unassigned",
+          },
+          ...(input.task.assignee ? { initial_user: input.task.assignee } : {}),
+        },
+      },
+      {
+        type: "input",
+        block_id: "edit_status",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Status",
+        },
+        element: {
+          type: "checkboxes",
+          action_id: "done",
+          options: [done],
+          ...(input.task.done ? { initial_options: [done] } : {}),
+        },
+      },
+    ],
+  };
+}
+
+export function buildCreateTaskFromMessageModal(input: {
+  conversationId: string;
+  messageText: string;
+  defaultAssignee: string | null;
+}): Record<string, unknown> {
+  const initialTitle = truncate(input.messageText.trim() || "Follow up on message", 2800);
+
+  return {
+    type: "modal",
+    callback_id: "todo_message_to_task_modal",
+    private_metadata: JSON.stringify({
+      conversationId: input.conversationId,
+    }),
+    title: {
+      type: "plain_text",
+      text: "Message -> Task",
+    },
+    submit: {
+      type: "plain_text",
+      text: "Create",
+    },
+    close: {
+      type: "plain_text",
+      text: "Cancel",
+    },
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Create a todo from this message*",
+        },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: truncate(`Source: ${escapeMrkdwn(input.messageText)}`, 2900),
+          },
+        ],
+      },
+      {
+        type: "input",
+        block_id: "create_title",
+        label: {
+          type: "plain_text",
+          text: "Task title",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "title",
+          min_length: 1,
+          initial_value: initialTitle,
+          multiline: true,
+        },
+      },
+      {
+        type: "input",
+        block_id: "create_assignee",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Assignee",
+        },
+        element: {
+          type: "users_select",
+          action_id: "assignee",
+          placeholder: {
+            type: "plain_text",
+            text: "Unassigned",
+          },
+          ...(input.defaultAssignee ? { initial_user: input.defaultAssignee } : {}),
         },
       },
     ],

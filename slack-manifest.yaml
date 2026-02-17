@@ -6,6 +6,11 @@ features:
   bot_user:
     display_name: Ticky
     always_online: false
+  shortcuts:
+    - name: Add message to Ticky
+      type: message
+      callback_id: todo_add_message_as_task
+      description: Turn this message into a task
   slash_commands:
     - command: /todo
       description: Manage shared todos
