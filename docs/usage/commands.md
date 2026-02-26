@@ -18,6 +18,7 @@ Shows command usage.
 ```
 
 Behavior:
+
 - If assignee is omitted, task is unassigned.
 - If mention is provided, task is assigned to that user.
 
@@ -59,6 +60,7 @@ Examples:
 ```
 
 Notes:
+
 - `all` includes completed tasks.
 - Without `all`, only open tasks are shown.
 
@@ -80,6 +82,7 @@ Opens modal to configure completion update behavior.
 ## Message shortcut
 
 From any message in DM/channel:
+
 - Open message actions
 - Click `Add message to Ticky`
 

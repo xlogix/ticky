@@ -4,21 +4,21 @@ This folder contains comprehensive documentation for Ticky.
 
 ## Start here
 
-- [Getting Started](./getting-started.md)
-- [Slack App Setup](./slack-app-setup.md)
-- [Configuration](./configuration.md)
+- [Getting Started](./setup/getting-started.md)
+- [Slack App Setup](./setup/slack-app-setup.md)
+- [Configuration](./setup/configuration.md)
 
 ## Product usage
 
-- [Command Reference](./commands.md)
-- [Features and Workflows](./features.md)
+- [Command Reference](./usage/commands.md)
+- [Features and Workflows](./usage/features.md)
 
 ## Technical reference
 
-- [Persistence](./persistence.md)
-- [Architecture](./architecture.md)
-- [Development Guide](./development.md)
-- [Troubleshooting](./troubleshooting.md)
+- [Persistence](./reference/persistence.md)
+- [Architecture](./reference/architecture.md)
+- [Development Guide](./development/development.md)
+- [Troubleshooting](./development/troubleshooting.md)
 
 ## Quick local run
 

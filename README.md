@@ -6,15 +6,15 @@ A mini task management Slack tool for channels and DMs.
 
 Comprehensive documentation is available in [`docs/`](./docs/README.md):
 
-- [Getting Started](./docs/getting-started.md)
-- [Slack App Setup](./docs/slack-app-setup.md)
-- [Configuration](./docs/configuration.md)
-- [Command Reference](./docs/commands.md)
-- [Features and Workflows](./docs/features.md)
-- [Persistence](./docs/persistence.md)
-- [Architecture](./docs/architecture.md)
-- [Troubleshooting](./docs/troubleshooting.md)
-- [Development Guide](./docs/development.md)
+- [Getting Started](./docs/setup/getting-started.md)
+- [Slack App Setup](./docs/setup/slack-app-setup.md)
+- [Configuration](./docs/setup/configuration.md)
+- [Features and Workflows](./docs/usage/features.md)
+- [Command Reference](./docs/usage/commands.md)
+- [Persistence](./docs/reference/persistence.md)
+- [Architecture](./docs/reference/architecture.md)
+- [Troubleshooting](./docs/development/troubleshooting.md)
+- [Development Guide](./docs/development/development.md)
 
 ## Features
 
