@@ -28,11 +28,16 @@ function assigneeLabel(task: Task): string {
   return task.assignee ? `<@${task.assignee}>` : "Unassigned";
 }
 
-function taskSummary(task: Task): string {
+function taskSummary(task: Task, depth = 0): string {
   const safeTitle = escapeMrkdwn(task.title);
-  const title = task.done ? `~${safeTitle}~` : safeTitle;
+  const prefix = depth > 0 ? `${"↳ ".repeat(Math.min(depth, 3))}` : "";
+  const title = task.done ? `~${prefix}${safeTitle}~` : `${prefix}${safeTitle}`;
+  const typeLabel = task.parentTaskId ? "Sub-task" : "Task";
 
-  return [`*${title}*`, `${statusLabel(task)}  •  Assignee: ${assigneeLabel(task)}`].join("\n");
+  return [
+    `*${title}*`,
+    `${statusLabel(task)}  •  ${typeLabel}  •  Assignee: ${assigneeLabel(task)}`,
+  ].join("\n");
 }
 
 function doneOption(taskId: string): {
@@ -48,13 +53,13 @@ function doneOption(taskId: string): {
   };
 }
 
-export function buildTaskSection(task: Task, blockId: string): KnownBlock {
+export function buildTaskSection(task: Task, blockId: string, depth = 0): KnownBlock {
   return {
     type: "section",
     block_id: blockId,
     text: {
       type: "mrkdwn",
-      text: taskSummary(task),
+      text: taskSummary(task, depth),
     },
   };
 }
@@ -105,6 +110,15 @@ export function buildTaskActions(task: Task, blockId: string): KnownBlock {
         type: "button",
         text: {
           type: "plain_text",
+          text: "Add Sub-task",
+        },
+        action_id: "add_subtask",
+        value: task.id,
+      },
+      {
+        type: "button",
+        text: {
+          type: "plain_text",
           text: "Discuss",
         },
         action_id: "discuss_task",
@@ -115,13 +129,14 @@ export function buildTaskActions(task: Task, blockId: string): KnownBlock {
 }
 
 function buildTaskCardContext(task: Task): KnownBlock {
+  const parentContext = task.parentTaskId ? ` • Parent: ${task.parentTaskId}` : "";
   return {
     type: "context",
     block_id: `task_card_context:${task.id}`,
     elements: [
       {
         type: "mrkdwn",
-        text: `Task ID: ${task.id} • Created ${new Date(task.createdAt).toLocaleString()}`,
+        text: `Task ID: ${task.id}${parentContext} • Created ${new Date(task.createdAt).toLocaleString()}`,
       },
     ],
   };
@@ -134,7 +149,7 @@ export function buildTaskCardBlocks(task: Task): (KnownBlock | Block)[] {
       block_id: `task_card_header:${task.id}`,
       text: {
         type: "plain_text",
-        text: "Ticky Task",
+        text: task.parentTaskId ? "Ticky Sub-task" : "Ticky Task",
       },
     },
     buildTaskSection(task, `task_card:${task.id}`),
@@ -150,6 +165,69 @@ export function buildTaskListBlocks(input: {
   title: string;
   subtitle?: string;
 }): (KnownBlock | Block)[] {
+  type TaskTreeNode = {
+    task: Task;
+    children: TaskTreeNode[];
+  };
+
+  const sortForBoard = (tasks: Task[]): Task[] => {
+    return [...tasks].sort((left, right) => {
+      if (left.done !== right.done) {
+        return left.done ? 1 : -1;
+      }
+      if (left.sortOrder !== right.sortOrder) {
+        return left.sortOrder - right.sortOrder;
+      }
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+  };
+
+  const buildTaskTree = (tasks: Task[]): TaskTreeNode[] => {
+    const sorted = sortForBoard(tasks);
+    const byId = new Map<string, TaskTreeNode>();
+    const roots: TaskTreeNode[] = [];
+
+    for (const task of sorted) {
+      byId.set(task.id, { task, children: [] });
+    }
+
+    for (const task of sorted) {
+      const node = byId.get(task.id);
+      if (!node) {
+        continue;
+      }
+
+      if (!task.parentTaskId) {
+        roots.push(node);
+        continue;
+      }
+
+      const parent = byId.get(task.parentTaskId);
+      if (!parent) {
+        roots.push(node);
+        continue;
+      }
+
+      parent.children.push(node);
+    }
+
+    return roots;
+  };
+
+  const appendTreeBlocks = (
+    blocks: (KnownBlock | Block)[],
+    node: TaskTreeNode,
+    depth: number,
+  ): void => {
+    blocks.push(buildTaskSection(node.task, `task_section:${node.task.id}`, depth));
+    blocks.push(buildTaskMetaContext(node.task, `task_meta:${node.task.id}`));
+    blocks.push(buildTaskActions(node.task, `task_actions:${node.task.id}`));
+
+    for (const child of node.children) {
+      appendTreeBlocks(blocks, child, depth + 1);
+    }
+  };
+
   const blocks: (KnownBlock | Block)[] = [
     {
       type: "header",
@@ -216,10 +294,9 @@ export function buildTaskListBlocks(input: {
     return blocks;
   }
 
-  for (const task of input.tasks) {
-    blocks.push(buildTaskSection(task, `task_section:${task.id}`));
-    blocks.push(buildTaskMetaContext(task, `task_meta:${task.id}`));
-    blocks.push(buildTaskActions(task, `task_actions:${task.id}`));
+  const roots = buildTaskTree(input.tasks);
+  for (const root of roots) {
+    appendTreeBlocks(blocks, root, 0);
     blocks.push({ type: "divider" });
   }
 
@@ -429,6 +506,79 @@ export function buildEditTaskModal(input: {
   };
 }
 
+export function buildCreateSubtaskModal(input: {
+  parentTask: Task;
+  sourceChannelId?: string;
+  sourceMessageTs?: string;
+}): Record<string, unknown> {
+  return {
+    type: "modal",
+    callback_id: "todo_create_subtask_modal",
+    private_metadata: JSON.stringify({
+      parentTaskId: input.parentTask.id,
+      sourceChannelId: input.sourceChannelId,
+      sourceMessageTs: input.sourceMessageTs,
+    }),
+    title: {
+      type: "plain_text",
+      text: "Add Sub-task",
+    },
+    submit: {
+      type: "plain_text",
+      text: "Create",
+    },
+    close: {
+      type: "plain_text",
+      text: "Cancel",
+    },
+    blocks: [
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Parent: *${escapeMrkdwn(input.parentTask.title)}* (${input.parentTask.id})`,
+          },
+        ],
+      },
+      {
+        type: "input",
+        block_id: "create_subtask_title",
+        label: {
+          type: "plain_text",
+          text: "Sub-task title",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "title",
+          min_length: 1,
+          placeholder: {
+            type: "plain_text",
+            text: "Add a specific next step",
+          },
+        },
+      },
+      {
+        type: "input",
+        block_id: "create_subtask_assignee",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Assignee",
+        },
+        element: {
+          type: "users_select",
+          action_id: "assignee",
+          placeholder: {
+            type: "plain_text",
+            text: "Unassigned",
+          },
+        },
+      },
+    ],
+  };
+}
+
 export function buildCreateTaskFromMessageModal(input: {
   conversationId: string;
   messageText: string;
@@ -476,7 +626,7 @@ export function buildCreateTaskFromMessageModal(input: {
         block_id: "create_title",
         label: {
           type: "plain_text",
-          text: "Task title",
+          text: "Task title(s)",
         },
         element: {
           type: "plain_text_input",
@@ -485,6 +635,15 @@ export function buildCreateTaskFromMessageModal(input: {
           initial_value: initialTitle,
           multiline: true,
         },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "Tip: paste numbered or bulleted lists to create multiple tasks; nested `a./b./c.` lines become sub-tasks.",
+          },
+        ],
       },
       {
         type: "input",

@@ -21,6 +21,8 @@ export interface Task {
   title: string;
   createdBy: string;
   assignee: string | null;
+  parentTaskId: string | null;
+  sortOrder: number;
   conversationId: string;
   conversationKind: ConversationKind;
   scope: TaskScope;
@@ -77,6 +79,7 @@ export interface TaskFilter {
   participants?: string[];
   includeDone?: boolean;
   scopes?: TaskScope[];
+  parentTaskId?: string | null;
 }
 
 export interface TrackUserActivityInput {

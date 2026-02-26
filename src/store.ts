@@ -35,6 +35,8 @@ interface MongoState {
   users: Collection<UserProfile>;
 }
 
+type StoreError = Error & { code: string };
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -47,6 +49,31 @@ function normalizeTaskId(value: string): string {
   const trimmed = value.trim();
   const quoted = trimmed.match(/^"(.+)"$/);
   return quoted ? quoted[1] : trimmed;
+}
+
+function makeStoreError(code: string, message: string): StoreError {
+  const error = new Error(message) as StoreError;
+  error.code = code;
+  return error;
+}
+
+function normalizeSortOrder(
+  value: number | undefined,
+  createdAt: string | undefined,
+  fallback = Date.now(),
+): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (createdAt) {
+    const timestamp = Date.parse(createdAt);
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  return fallback;
 }
 
 function conversationKindFromId(conversationId: string): ConversationKind {
@@ -110,6 +137,8 @@ function normalizeTask(raw: {
   title: string;
   createdBy: string;
   assignee?: string | null;
+  parentTaskId?: string | null;
+  sortOrder?: number;
   conversationId: string;
   conversationKind?: ConversationKind;
   scope?: TaskScope;
@@ -125,12 +154,19 @@ function normalizeTask(raw: {
 }): Task {
   const conversationKind = raw.conversationKind ?? conversationKindFromId(raw.conversationId);
   const assignee = raw.assignee ?? null;
+  const parentTaskId =
+    typeof raw.parentTaskId === "string" && raw.parentTaskId.trim()
+      ? normalizeTaskId(raw.parentTaskId)
+      : null;
+  const sortOrder = normalizeSortOrder(raw.sortOrder, raw.createdAt);
 
   return {
     id: raw.id,
     title: raw.title,
     createdBy: raw.createdBy,
     assignee,
+    parentTaskId,
+    sortOrder,
     conversationId: raw.conversationId,
     conversationKind,
     scope: raw.scope ?? inferScope(conversationKind, raw.createdBy, assignee),
@@ -239,6 +275,7 @@ export class TodoStore {
     title: string;
     createdBy: string;
     assignee: string | null;
+    parentTaskId?: string | null;
     conversationId: string;
     source?: TaskSource | TaskSourceKind;
     recurrence?: TaskRecurrence | null;
@@ -247,16 +284,59 @@ export class TodoStore {
       const timestamp = nowIso();
       const conversationKind = conversationKindFromId(input.conversationId);
       const assignee = input.assignee ?? null;
+      const parentTaskId = input.parentTaskId ? normalizeTaskId(input.parentTaskId) : null;
       const source =
         typeof input.source === "string"
           ? defaultTaskSource(input.source)
           : (input.source ?? defaultTaskSource());
+
+      let sortOrder = 1;
+
+      if (this.mode === "mongo" && this.mongo) {
+        if (parentTaskId) {
+          const parent = await this.mongo.tasks.findOne({ id: parentTaskId });
+          if (!parent) {
+            throw makeStoreError("parent_task_not_found", "Parent task was not found.");
+          }
+
+          if (parent.conversationId !== input.conversationId) {
+            throw makeStoreError(
+              "parent_task_mismatch",
+              "Parent task belongs to a different conversation.",
+            );
+          }
+        }
+
+        sortOrder = await this.nextSortOrderMongo(input.conversationId, parentTaskId);
+      }
+
+      if (this.mode === "file") {
+        const data = await this.getData();
+
+        if (parentTaskId) {
+          const parent = data.tasks.find((task) => task.id === parentTaskId);
+          if (!parent) {
+            throw makeStoreError("parent_task_not_found", "Parent task was not found.");
+          }
+
+          if (parent.conversationId !== input.conversationId) {
+            throw makeStoreError(
+              "parent_task_mismatch",
+              "Parent task belongs to a different conversation.",
+            );
+          }
+        }
+
+        sortOrder = this.nextSortOrderFile(data.tasks, input.conversationId, parentTaskId);
+      }
 
       const task = normalizeTask({
         id: makeTaskId(),
         title: input.title,
         createdBy: input.createdBy,
         assignee,
+        parentTaskId,
+        sortOrder,
         conversationId: input.conversationId,
         conversationKind,
         scope: inferScope(conversationKind, input.createdBy, assignee),
@@ -273,6 +353,9 @@ export class TodoStore {
 
       if (this.mode === "mongo" && this.mongo) {
         await this.mongo.tasks.insertOne(task);
+        if (parentTaskId) {
+          await this.touchTaskUpdatedAtMongo(parentTaskId, timestamp);
+        }
         await this.recordUserActivityMongo(
           {
             userId: task.createdBy,
@@ -298,6 +381,9 @@ export class TodoStore {
 
       const data = await this.getData();
       data.tasks.push(task);
+      if (parentTaskId) {
+        this.touchTaskUpdatedAtFile(data.tasks, parentTaskId, timestamp);
+      }
       this.recordUserActivityFile(
         data,
         {
@@ -358,13 +444,20 @@ export class TodoStore {
           query.scope = { $in: filter.scopes };
         }
 
+        if (Object.prototype.hasOwnProperty.call(filter, "parentTaskId")) {
+          query.parentTaskId = filter.parentTaskId ?? null;
+        }
+
         if (participants.length > 0) {
           query.$and = participants.map((participant) => ({
             $or: [{ createdBy: participant }, { assignee: participant }],
           }));
         }
 
-        const tasks = await this.mongo.tasks.find(query).sort({ done: 1, updatedAt: -1 }).toArray();
+        const tasks = await this.mongo.tasks
+          .find(query)
+          .sort({ done: 1, sortOrder: 1, updatedAt: -1 })
+          .toArray();
 
         return tasks.map((task) => normalizeTask(task));
       }
@@ -386,6 +479,13 @@ export class TodoStore {
             return false;
           }
 
+          if (
+            Object.prototype.hasOwnProperty.call(filter, "parentTaskId") &&
+            (task.parentTaskId ?? null) !== (filter.parentTaskId ?? null)
+          ) {
+            return false;
+          }
+
           if (participants.length === 0) {
             return true;
           }
@@ -400,6 +500,9 @@ export class TodoStore {
         .sort((left, right) => {
           if (left.done !== right.done) {
             return left.done ? 1 : -1;
+          }
+          if (left.sortOrder !== right.sortOrder) {
+            return left.sortOrder - right.sortOrder;
           }
           return right.updatedAt.localeCompare(left.updatedAt);
         });
@@ -443,6 +546,9 @@ export class TodoStore {
             },
           },
         );
+        if (existing.parentTaskId) {
+          await this.touchTaskUpdatedAtMongo(existing.parentTaskId, updatedAt);
+        }
 
         const updatedTask = {
           ...existing,
@@ -482,6 +588,9 @@ export class TodoStore {
       task.updatedAt = nowIso();
       task.doneAt = done ? task.updatedAt : null;
       task.doneBy = done ? actorId : null;
+      if (task.parentTaskId) {
+        this.touchTaskUpdatedAtFile(data.tasks, task.parentTaskId, task.updatedAt);
+      }
 
       if (done) {
         this.recordUserActivityFile(
@@ -512,9 +621,11 @@ export class TodoStore {
         if (!task) {
           return null;
         }
+        const existing = normalizeTask(task);
 
+        const updatedAt = nowIso();
         const set: Record<string, unknown> = {
-          updatedAt: nowIso(),
+          updatedAt,
         };
 
         if (Object.prototype.hasOwnProperty.call(updates, "messageTs")) {
@@ -531,9 +642,12 @@ export class TodoStore {
             $set: set,
           },
         );
+        if (existing.parentTaskId) {
+          await this.touchTaskUpdatedAtMongo(existing.parentTaskId, updatedAt);
+        }
 
         return {
-          ...normalizeTask(task),
+          ...existing,
           ...set,
         } as Task;
       }
@@ -554,6 +668,9 @@ export class TodoStore {
       }
 
       task.updatedAt = nowIso();
+      if (task.parentTaskId) {
+        this.touchTaskUpdatedAtFile(data.tasks, task.parentTaskId, task.updatedAt);
+      }
       await this.persist(data);
       return { ...task };
     });
@@ -588,6 +705,9 @@ export class TodoStore {
             },
           },
         );
+        if (current.parentTaskId) {
+          await this.touchTaskUpdatedAtMongo(current.parentTaskId, updatedAt);
+        }
 
         if (updates.actorId) {
           await this.recordUserActivityMongo(
@@ -632,6 +752,9 @@ export class TodoStore {
       task.assignee = updates.assignee ?? null;
       task.scope = inferScope(task.conversationKind, task.createdBy, task.assignee);
       task.updatedAt = nowIso();
+      if (task.parentTaskId) {
+        this.touchTaskUpdatedAtFile(data.tasks, task.parentTaskId, task.updatedAt);
+      }
 
       if (updates.actorId) {
         this.recordUserActivityFile(
@@ -743,6 +866,77 @@ export class TodoStore {
     });
   }
 
+  private async nextSortOrderMongo(
+    conversationId: string,
+    parentTaskId: string | null,
+  ): Promise<number> {
+    if (!this.mongo) {
+      return 1;
+    }
+
+    const sibling = await this.mongo.tasks
+      .find({ conversationId, parentTaskId: parentTaskId ?? null })
+      .sort({ sortOrder: -1 })
+      .limit(1)
+      .next();
+
+    if (!sibling) {
+      return 1;
+    }
+
+    const current = normalizeSortOrder(
+      typeof sibling.sortOrder === "number" ? sibling.sortOrder : undefined,
+      sibling.createdAt,
+      0,
+    );
+    return current + 1;
+  }
+
+  private nextSortOrderFile(
+    tasks: Task[],
+    conversationId: string,
+    parentTaskId: string | null,
+  ): number {
+    const siblings = tasks.filter(
+      (task) =>
+        task.conversationId === conversationId &&
+        (task.parentTaskId ?? null) === (parentTaskId ?? null),
+    );
+
+    if (siblings.length === 0) {
+      return 1;
+    }
+
+    const maxSortOrder = siblings.reduce((max, sibling) => {
+      const value = normalizeSortOrder(sibling.sortOrder, sibling.createdAt, 0);
+      return value > max ? value : max;
+    }, 0);
+
+    return maxSortOrder + 1;
+  }
+
+  private async touchTaskUpdatedAtMongo(taskId: string, updatedAt: string): Promise<void> {
+    if (!this.mongo) {
+      return;
+    }
+
+    await this.mongo.tasks.updateOne(
+      { id: taskId },
+      {
+        $set: { updatedAt },
+      },
+    );
+  }
+
+  private touchTaskUpdatedAtFile(tasks: Task[], taskId: string, updatedAt: string): void {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return;
+    }
+
+    task.updatedAt = updatedAt;
+  }
+
   private async enqueue<T>(op: () => Promise<T>): Promise<T> {
     const run = this.queue.then(op, op);
     this.queue = run.then(
@@ -803,6 +997,7 @@ export class TodoStore {
     await Promise.all([
       this.mongo.tasks.createIndex({ id: 1 }, { unique: true }),
       this.mongo.tasks.createIndex({ conversationId: 1, updatedAt: -1 }),
+      this.mongo.tasks.createIndex({ conversationId: 1, parentTaskId: 1, sortOrder: 1 }),
       this.mongo.tasks.createIndex({ assignee: 1, done: 1, updatedAt: -1 }),
       this.mongo.tasks.createIndex({ scope: 1, updatedAt: -1 }),
       this.mongo.tasks.createIndex({ "recurrence.enabled": 1, "recurrence.nextRunAt": 1 }),
