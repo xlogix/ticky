@@ -2,6 +2,20 @@
 
 A mini task management Slack tool for channels and DMs.
 
+## Documentation
+
+Comprehensive documentation is available in [`docs/`](./docs/README.md):
+
+- [Getting Started](./docs/getting-started.md)
+- [Slack App Setup](./docs/slack-app-setup.md)
+- [Configuration](./docs/configuration.md)
+- [Command Reference](./docs/commands.md)
+- [Features and Workflows](./docs/features.md)
+- [Persistence](./docs/persistence.md)
+- [Architecture](./docs/architecture.md)
+- [Troubleshooting](./docs/troubleshooting.md)
+- [Development Guide](./docs/development.md)
+
 ## Features
 
 - `/todo add` to create tasks in a DM or channel.
@@ -9,6 +23,7 @@ A mini task management Slack tool for channels and DMs.
 - `/todo list` to show tasks in an interactive list.
 - `/todo between <@u1> <@u2>` to list tasks involving two people.
 - Refreshed task board UI with status badges and action buttons.
+- Real sub-task support with parent-child persistence and grouped board rendering.
 - `Edit` button to update task title, assignee, and status in a modal.
 - Message shortcut (`Add message to Ticky`) to convert DM/channel messages into tasks.
 - `Mark Done` / `Reopen` actions directly in Slack.
@@ -18,8 +33,11 @@ A mini task management Slack tool for channels and DMs.
 
 ## Commands
 
-- `/todo add <@user> <task>`
+- `/todo add @user <task>`
 - `/todo add <task>`
+- `/todo sub <task_id> [@user] <task>`
+- `/todo done <task_id>`
+- `/todo reopen <task_id>`
 - Note: for assignee resolution, pick the user from Slack mention autocomplete.
 - `/todo list [@user] [all]`
 - `/todo between <@user1> <@user2> [all]`
@@ -63,6 +81,7 @@ pnpm dev
 pnpm lint
 pnpm format:check
 pnpm check
+pnpm test
 pnpm build
 ```
 
@@ -86,6 +105,7 @@ Create a Slack app and enable:
 
 - `commands`
 - `chat:write`
+- `users:read` (for resolving assignee when command text starts with `@name`)
 
 1. **Socket Mode**
 
@@ -103,10 +123,23 @@ Create a Slack app and enable:
 
 ## Project structure
 
-- `src/index.ts` Slack command + action handlers.
+- `src/index.ts` thin bootstrap entrypoint (config, startup, handler registration).
+- `src/app/usage.ts` command/help text.
+- `src/app/todo-behavior.ts` shared todo behavior helpers (list titles, settings normalization, command errors).
+- `src/slack/assignee-resolver.ts` user mention parsing and assignee resolution.
+- `src/slack/message-helpers.ts` Slack message formatting and platform error helpers.
+- `src/slack/runtime.ts` shared Slack runtime service (posting, card sync, completion notifications, settings modal).
+- `src/slack/handlers/register.ts` central handler registration.
+- `src/slack/handlers/todo-command.ts` `/todo` command handling.
+- `src/slack/handlers/todo-actions.ts` button/action handlers.
+- `src/slack/handlers/todo-shortcuts.ts` message shortcut handlers.
+- `src/slack/handlers/todo-views.ts` modal submit handlers.
+- `src/tasks/input-parser.ts` command/message text parsing (including nested list -> sub-task parsing).
+- `src/tasks/id-helpers.ts` task-id parsing from actions/blocks.
 - `src/blocks.ts` Block Kit UI builders.
 - `src/store.ts` MongoDB-first persistence with file fallback.
-- `src/types.ts` shared types.
+- `src/types.ts` shared domain types.
+- `docs/` comprehensive product and technical documentation.
 
 ## Notes
 
