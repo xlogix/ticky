@@ -34,6 +34,10 @@ pnpm-debug.log*
 
 # runtime data
 data/store.json
+branding/blog-assets/
 
 # test output
 .nyc_output/
+
+# local utility scripts
+scripts/
