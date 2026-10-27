@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- Node.js 22+
-- pnpm 10+
+- Node.js 22.13+ (pnpm 11 needs it)
+- pnpm 11+
 - A Slack workspace where you can create/install apps
 - MongoDB connection (recommended), or local file persistence fallback
 
