@@ -1,0 +1,4 @@
+allowBuilds:
+  # pnpm 10 skipped this postinstall (no onlyBuiltDependencies); esbuild resolves its platform
+  # binary from an optional dependency, so the script has nothing to do.
+  esbuild: false
